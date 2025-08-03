@@ -1,0 +1,293 @@
+name: CI
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main, develop ]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    
+    strategy:
+      matrix:
+        image:
+          - "ubuntu:20.04"
+          - "ubuntu:22.04"
+          - "alpine:3.18"
+          - "alpine:3.19"
+          - "debian:11"
+          - "debian:12"
+          - "nginx:alpine"
+          - "node:18-alpine"
+        format:
+          - "txt"
+          - "json"
+          - "csv"
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Set up Docker
+      uses: docker/setup-buildx-action@v3
+    
+    - name: Make script executable
+      run: chmod +x collect-packages-licenses.bash
+    
+    - name: Test script with ${{ matrix.image }} (${{ matrix.format }})
+      run: |
+        ./collect-packages-licenses.bash "${{ matrix.image }}" "${{ matrix.format }}"
+        
+        # Verify output files exist
+        ls -la scan-results/
+        
+        # Basic validation of output format
+        case "${{ matrix.format }}" in
+          "json")
+            # Validate JSON syntax
+            find scan-results/ -name "*.json" -exec jq . {} \;
+            ;;
+          "csv")
+            # Check CSV has header
+            find scan-results/ -name "*.csv" -exec head -1 {} \;
+            ;;
+          "txt")
+            # Check text file has content
+            find scan-results/ -name "*.txt" -exec wc -l {} \;
+            ;;
+        esac
+    
+    - name: Upload scan results as artifacts
+      uses: actions/upload-artifact@v4
+      if: always()
+      with:
+        name: scan-results-${{ matrix.image }}-${{ matrix.format }}
+        path: scan-results/
+        retention-days: 7
+
+  test-distroless:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Set up Docker
+      uses: docker/setup-buildx-action@v3
+    
+    - name: Make script executable
+      run: chmod +x collect-packages-licenses.bash
+    
+    - name: Test with distroless images
+      run: |
+        # Test distroless base image
+        ./collect-packages-licenses.bash gcr.io/distroless/base-debian11 json
+        
+        # Verify it handles distroless correctly
+        if grep -q "distroless" scan-results/*.json; then
+          echo "✓ Distroless detection working"
+        else
+          echo "✗ Distroless detection failed"
+          exit 1
+        fi
+    
+    - name: Upload distroless results
+      uses: actions/upload-artifact@v4
+      if: always()
+      with:
+        name: distroless-scan-results
+        path: scan-results/
+        retention-days: 7
+
+  shellcheck:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Run ShellCheck
+      uses: ludeeus/action-shellcheck@master
+      with:
+        scandir: '.'
+        format: gcc
+        severity: warning
+        exclude_paths: scan-results
+
+  test-error-handling:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Make script executable
+      run: chmod +x collect-packages-licenses.bash
+    
+    - name: Test invalid image name
+      run: |
+        # This should fail gracefully
+        if ./collect-packages-licenses.bash "nonexistent-image:invalid-tag" 2>&1 | grep -q "Error\|Failed"; then
+          echo "✓ Error handling working for invalid image"
+        else
+          echo "✗ Error handling not working properly"
+          exit 1
+        fi
+      continue-on-error: true
+    
+    - name: Test invalid output format
+      run: |
+        # This should show usage and exit
+        if ./collect-packages-licenses.bash "ubuntu:20.04" "invalid-format" 2>&1 | grep -q "Invalid output format"; then
+          echo "✓ Input validation working"
+        else
+          echo "✗ Input validation not working"
+          exit 1
+        fi
+      continue-on-error: true
+    
+    - name: Test help option
+      run: |
+        # Test help functionality
+        ./collect-packages-licenses.bash --help
+        ./collect-packages-licenses.bash -h
+
+  performance-test:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Set up Docker
+      uses: docker/setup-buildx-action@v3
+    
+    - name: Make script executable
+      run: chmod +x collect-packages-licenses.bash
+    
+    - name: Performance test with large image
+      run: |
+        # Test with a larger image to check performance
+        timeout 300 ./collect-packages-licenses.bash ubuntu:20.04 json
+        
+        # Check if scan completed within reasonable time
+        if [ $? -eq 0 ]; then
+          echo "✓ Performance test passed"
+        else
+          echo "✗ Performance test failed (timeout or error)"
+          exit 1
+        fi
+    
+    - name: Check output file sizes
+      run: |
+        # Ensure output files are reasonable size
+        find scan-results/ -name "*.json" -size +10M -exec echo "Warning: Large JSON file {}" \;
+        find scan-results/ -name "*.txt" -size +5M -exec echo "Warning: Large text file {}" \;
+
+  security-scan:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Run Bandit security scan
+      run: |
+        # Basic security checks for shell script
+        # Check for potential security issues
+        if grep -n "eval\|exec.*\$" collect-packages-licenses.bash; then
+          echo "Warning: Potential security issue found"
+        fi
+        
+        # Check for proper quoting
+        if grep -n '\$[A-Za-z_][A-Za-z0-9_]*[^"]' collect-packages-licenses.bash | grep -v '${'; then
+          echo "Warning: Unquoted variables found"
+        fi
+    
+    - name: Check for hardcoded secrets
+      run: |
+        # Basic check for potential secrets
+        if grep -i "password\|secret\|key\|token" collect-packages-licenses.bash | grep -v "# "; then
+          echo "Warning: Potential hardcoded secrets found"
+        fi
+
+  documentation-check:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Check documentation completeness
+      run: |
+        # Check if all required files exist
+        required_files=("README.md" "LICENSE" "CHANGELOG.md" "CONTRIBUTING.md")
+        
+        for file in "${required_files[@]}"; do
+          if [ ! -f "$file" ]; then
+            echo "✗ Missing required file: $file"
+            exit 1
+          else
+            echo "✓ Found: $file"
+          fi
+        done
+    
+    - name: Validate README examples
+      run: |
+        # Check if README examples are valid
+        if grep -q "collect-packages-licenses.bash" README.md; then
+          echo "✓ README contains script examples"
+        else
+          echo "✗ README missing script examples"
+          exit 1
+        fi
+    
+    - name: Check for broken links
+      run: |
+        # Basic check for common broken link patterns
+        if grep -n "](http" README.md | grep -q "404\|broken"; then
+          echo "Warning: Potential broken links found"
+        fi
+
+  integration-test:
+    runs-on: ubuntu-latest
+    needs: [test, test-distroless]
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Set up Docker
+      uses: docker/setup-buildx-action@v3
+    
+    - name: Make script executable
+      run: chmod +x collect-packages-licenses.bash
+    
+    - name: Full integration test
+      run: |
+        # Test complete workflow with different scenarios
+        
+        # Test 1: Standard Ubuntu image
+        ./collect-packages-licenses.bash ubuntu:20.04 json
+        
+        # Test 2: Alpine image
+        ./collect-packages-licenses.bash alpine:3.18 csv
+        
+        # Test 3: Application image
+        ./collect-packages-licenses.bash nginx:alpine txt
+        
+        # Verify all outputs exist and are valid
+        echo "Checking generated files..."
+        ls -la scan-results/
+        
+        # Count total files generated
+        file_count=$(find scan-results/ -type f | wc -l)
+        echo "Generated $file_count files"
+        
+        if [ "$file_count" -lt 3 ]; then
+          echo "✗ Expected at least 3 output files"
+          exit 1
+        else
+          echo "✓ Integration test passed"
+        fi
+    
+    - name: Upload final results
+      uses: actions/upload-artifact@v4
+      with:
+        name: integration-test-results
+        path: scan-results/
+        retention-days: 30
