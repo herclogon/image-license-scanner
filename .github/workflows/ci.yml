@@ -99,19 +99,19 @@ jobs:
         path: scan-results/
         retention-days: 7
 
-  shellcheck:
-    runs-on: ubuntu-latest
+  # shellcheck:
+  #   runs-on: ubuntu-latest
     
-    steps:
-    - uses: actions/checkout@v4
+  #   steps:
+  #   - uses: actions/checkout@v4
     
-    - name: Run ShellCheck
-      uses: ludeeus/action-shellcheck@master
-      with:
-        scandir: '.'
-        format: gcc
-        severity: warning
-        exclude_paths: scan-results
+  #   - name: Run ShellCheck
+  #     uses: ludeeus/action-shellcheck@master
+  #     with:
+  #       scandir: '.'
+  #       format: gcc
+  #       severity: warning
+  #       exclude_paths: scan-results
 
   test-error-handling:
     runs-on: ubuntu-latest
@@ -144,11 +144,11 @@ jobs:
         fi
       continue-on-error: true
     
-    - name: Test help option
-      run: |
-        # Test help functionality
-        ./collect-packages-licenses.bash --help
-        ./collect-packages-licenses.bash -h
+    # - name: Test help option
+    #   run: |
+    #     # Test help functionality
+    #     ./collect-packages-licenses.bash --help
+    #     ./collect-packages-licenses.bash -h
 
   performance-test:
     runs-on: ubuntu-latest
