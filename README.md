@@ -4,7 +4,7 @@ A comprehensive bash script to scan Docker images for installed packages and the
 
 ## Features
 
-- **Multi-Package Manager Support**: APT (Debian/Ubuntu), RPM (RedHat/CentOS/Fedora), APK (Alpine), and NPM (Node.js)
+- **Multi-Package Manager Support**: APT (Debian/Ubuntu), APK (Alpine)
 - **Multiple Output Formats**: JSON, CSV, and human-readable text
 - **License Detection**: Automatically detects and maps package licenses
 - **Copyright File Extraction**: Finds and extracts copyright files from the container filesystem
