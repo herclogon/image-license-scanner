@@ -29,7 +29,7 @@ A comprehensive bash script to scan Docker images for installed packages and the
 
 1. **Download the script:**
    ```bash
-   curl -O https://raw.githubusercontent.com/YOUR_USERNAME/collect-packages-licenses/main/collect-packages-licenses.bash
+   curl -O https://raw.githubusercontent.com/herclogon/image-license-scanner/main/collect-packages-licenses.bash
    chmod +x collect-packages-licenses.bash
    ```
 
